@@ -44,7 +44,7 @@ func main() {
 	// 	fmt.Println("error :", err)
 	// 	os.Exit(1)
 	// }
-	fmt.Println("LocalAddr\t\tRemoteAddr\t\tState\t\tInode")
+	fmt.Println("LocalAddr\t\tRemoteAddr\t\tState\t\tInode\t\tPID\t\tProcess")
 
 	prevLines := 0
 
@@ -64,10 +64,10 @@ func main() {
 
 		for _, c := range conns {
 			fmt.Printf(
-				"\033[2K%s:%s\t\t%s:%s\t\t%s\t\t%s\n",
+				"\033[2K%s:%s\t\t%s:%s\t\t%s\t\t%s\t\t%s\t\t%s\n",
 				c.LocalIp, c.LocalPort,
 				c.RemoteIp, c.RemotePort,
-				c.State, c.Inode,
+				c.State, c.Inode, c.PID, c.Proc,
 			)
 			linesPrinted++
 		}

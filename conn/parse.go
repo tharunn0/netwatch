@@ -4,9 +4,9 @@ import (
 	"bufio"
 	"encoding/hex"
 	"fmt"
-	"log"
 	"net"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 )
@@ -18,13 +18,16 @@ type Connection struct {
 	RemotePort string
 	State      string
 	Inode      string
+
+	Proc string
+	PID  string
 }
 
-func FetchConnections(path string) ([]Connection, error) {
+func FetchConnections(netPath string) ([]Connection, error) {
 
-	file, err := os.Open(path)
+	// fetching all the live tcp connections
+	file, err := os.Open(netPath)
 	if err != nil {
-		log.Fatal("error :", err)
 		return nil, err
 	}
 	defer file.Close()
@@ -58,6 +61,118 @@ func FetchConnections(path string) ([]Connection, error) {
 		})
 
 	}
+
+	// fetching and mapping processes to inodes
+	uniqueInodes := make(map[string]struct{}, len(conns))
+
+	for _, c := range conns {
+		uniqueInodes[c.Inode] = struct{}{}
+	}
+
+	inodeToProc := make(map[string]struct {
+		pid  string
+		proc string
+	})
+
+	// read all the entries inside proc
+	procEntries, err := os.ReadDir("/proc")
+	if err != nil {
+		return nil, err
+	}
+
+	permissionDenied := false
+
+	for _, p := range procEntries {
+
+		// exit if all inodes are resolved
+		if len(uniqueInodes) == 0 {
+			break
+		}
+
+		pid := p.Name()
+
+		// filter out the processes that does not start with a integer
+		if pid[0] < '0' || pid[0] > '9' {
+			continue
+		}
+
+		fdDir := filepath.Join("/proc", pid, "fd")
+
+		fdEntries, err := os.ReadDir(fdDir)
+		if err != nil {
+			// check if its permission issues
+			if os.IsPermission(err) {
+				permissionDenied = true
+			}
+			continue
+		}
+
+		commBytes, err := os.ReadFile(filepath.Join("/proc", pid, "comm"))
+		if err != nil {
+			continue
+		}
+
+		procName := strings.TrimSpace(string(commBytes))
+
+		for _, fd := range fdEntries {
+
+			if len(uniqueInodes) == 0 {
+				break
+			}
+			fdPath := filepath.Join(fdDir, fd.Name())
+
+			link, err := os.Readlink(fdPath)
+			if err != nil {
+				continue
+			}
+
+			if !strings.HasPrefix(link, "socket:[") {
+				continue
+			}
+
+			inode := strings.TrimSuffix(
+				strings.TrimPrefix(link, "socket:["),
+				"]",
+			)
+
+			if _, ok := uniqueInodes[inode]; !ok {
+				continue
+			}
+
+			inodeToProc[inode] = struct {
+				pid  string
+				proc string
+			}{
+				pid:  pid,
+				proc: procName,
+			}
+
+			delete(uniqueInodes, inode)
+		}
+
+	}
+
+	for i := range conns {
+
+		if conns[i].PID == "0" {
+			conns[i].Proc = "No Owner"
+			continue
+		}
+
+		if p, ok := inodeToProc[conns[i].Inode]; ok {
+			conns[i].PID = p.pid
+			conns[i].Proc = p.proc
+			continue
+		}
+
+		if permissionDenied {
+			conns[i].Proc = "Permission Denied"
+		} else {
+			conns[i].Proc = "Unknown"
+		}
+
+	}
+
 	return conns, nil
 }
 
