@@ -11,6 +11,9 @@ import (
 	"strings"
 )
 
+// Connection represents a TCP connection parsed from /proc/net/tcp.
+// Fields from columns: local/remote addr, state, inode.
+// Proc/PID matched post-parse via inode -> /proc/<PID>/fd socket symlinks.
 type Connection struct {
 	LocalIp    string
 	LocalPort  string
@@ -23,8 +26,13 @@ type Connection struct {
 	PID  string
 }
 
+// FetchConnections parses active TCP sockets from netPath (e.g. "/proc/net/tcp").
+// Enriches with owning process via inode matching in /proc/<PID>/fd.
+// Linux-only; non-root users see only own procs (perm denied others).
+// Optimizations: unique inodes, early loop exits on resolution.
 func FetchConnections(netPath string) ([]Connection, error) {
 
+	// Parse non-header lines: "sl local_address:port rem_address:port st ... uid timeout inode"
 	// fetching all the live tcp connections
 	file, err := os.Open(netPath)
 	if err != nil {
@@ -62,6 +70,7 @@ func FetchConnections(netPath string) ([]Connection, error) {
 
 	}
 
+	// Build inode set for targeted matching; delete resolved inodes for early exits
 	// fetching and mapping processes to inodes
 	uniqueInodes := make(map[string]struct{}, len(conns))
 
@@ -69,21 +78,25 @@ func FetchConnections(netPath string) ([]Connection, error) {
 		uniqueInodes[c.Inode] = struct{}{}
 	}
 
+	// inode -> first-matching {pid, procname}
 	inodeToProc := make(map[string]struct {
 		pid  string
 		proc string
 	})
 
+	// Iterate /proc/<PID> dirs (numeric names only)
 	// read all the entries inside proc
 	procEntries, err := os.ReadDir("/proc")
 	if err != nil {
 		return nil, err
 	}
 
+	// Track if any /proc/<PID>/fd access denied (label unowned conns later)
 	permissionDenied := false
 
 	for _, p := range procEntries {
 
+		// Early exit: all target inodes matched
 		// exit if all inodes are resolved
 		if len(uniqueInodes) == 0 {
 			break
@@ -91,6 +104,7 @@ func FetchConnections(netPath string) ([]Connection, error) {
 
 		pid := p.Name()
 
+		// Quick PID check: skip non-numeric dir names (e.g. "self", "sys")
 		// filter out the processes that does not start with a integer
 		if pid[0] < '0' || pid[0] > '9' {
 			continue
@@ -100,6 +114,7 @@ func FetchConnections(netPath string) ([]Connection, error) {
 
 		fdEntries, err := os.ReadDir(fdDir)
 		if err != nil {
+			// Typically EACCES for other users' PIDs (non-root)
 			// check if its permission issues
 			if os.IsPermission(err) {
 				permissionDenied = true
@@ -114,8 +129,10 @@ func FetchConnections(netPath string) ([]Connection, error) {
 
 		procName := strings.TrimSpace(string(commBytes))
 
+		// Scan FD symlinks for "socket:[inode]" matching uniqueInodes
 		for _, fd := range fdEntries {
 
+			// Early exit per-PID
 			if len(uniqueInodes) == 0 {
 				break
 			}
@@ -152,8 +169,10 @@ func FetchConnections(netPath string) ([]Connection, error) {
 
 	}
 
+	// Assign Proc/PID by inode; fallbacks for unmatched/perm denied
 	for i := range conns {
 
+		// Handle rare inode=0 (kernel reserved?)
 		if conns[i].PID == "0" {
 			conns[i].Proc = "No Owner"
 			continue
@@ -179,6 +198,8 @@ func FetchConnections(netPath string) ([]Connection, error) {
 // sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode
 // "0: 0100007F:1F90 00000000:0000 0A 00000000:00000000 00:00000000 00000000  1000        0 12345"
 
+// parse splits "IPHEX:PORTHEX" (e.g. "0100007F:1F90") into IP/port.
+// IPHEX: 4-byte big-endian IPv4.
 func parse(hex string) (string, string) {
 	parts := strings.Split(hex, ":")
 	iphex, porthex := parts[0], parts[1]
@@ -190,6 +211,7 @@ func parse(hex string) (string, string) {
 	return ip, fmt.Sprintf("%d", port)
 }
 
+// getip decodes IPv4 hex bytes, reverses to host byte order, formats as dotted quad.
 func getip(ip string) string {
 	h, _ := hex.DecodeString(ip)
 	for i, j := 0, len(h)-1; i < j; i, j = i+1, j-1 {
@@ -199,6 +221,7 @@ func getip(ip string) string {
 	return net.IP(h).String()
 }
 
+// tcpState maps /proc/net/tcp 2-digit hex state codes to human names.
 func tcpState(code string) string {
 	states := map[string]string{
 		"01": "ESTABLISHED",
