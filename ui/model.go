@@ -16,15 +16,14 @@ const (
 	FilterPublic
 )
 
-// Model represents the application state for the Bubble Tea UI
 type Model struct {
-	connections []conn.Connection
-	err         error
-	width       int
-	height      int
-	netPath     string
-	filterMode  FilterMode
-	cursor      int // Currently selected row
+	connections []conn.Connection // Current list of connections
+	err         error             // Last error, if any
+	width       int               // Terminal width
+	height      int               // Terminal height
+	netPath     string            // Path to /proc/net/*
+	filterMode  FilterMode        // Current filter mode
+	cursor      int               // Currently selected row
 }
 
 // tickMsg is sent periodically to refresh connection data
@@ -64,7 +63,7 @@ func fetchConnections(netPath string) tea.Cmd {
 
 // tickEvery returns a command that sends tick messages periodically
 func tickEvery() tea.Cmd {
-	return tea.Tick(2*time.Second, func(t time.Time) tea.Msg {
+	return tea.Tick(500*time.Millisecond, func(t time.Time) tea.Msg {
 		return tickMsg(t)
 	})
 }

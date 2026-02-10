@@ -3,8 +3,6 @@ package ui
 import (
 	"fmt"
 	"strings"
-
-	"github.com/xruc/netwatch/conn"
 )
 
 // View renders the UI
@@ -20,7 +18,7 @@ func (m Model) View() string {
 	}
 
 	// Filter connections based on mode
-	filteredConns := m.filterConnections()
+	filteredConns := m.connections
 
 	// No connections
 	if len(filteredConns) == 0 {
@@ -142,80 +140,4 @@ func (m Model) View() string {
 	))
 
 	return b.String()
-}
-
-// filterConnections returns connections based on the current filter mode
-func (m Model) filterConnections() []conn.Connection {
-	if m.filterMode == FilterAll {
-		return m.connections
-	}
-
-	filtered := make([]conn.Connection, 0)
-	for _, c := range m.connections {
-		// Only check the remote address to determine if connection is local or public
-		isLocal := isLocalAddress(c.RemoteIp)
-
-		if m.filterMode == FilterLocal && isLocal {
-			filtered = append(filtered, c)
-		} else if m.filterMode == FilterPublic && !isLocal {
-			filtered = append(filtered, c)
-		}
-	}
-
-	return filtered
-}
-
-// isLocalAddress checks if an IP address is local/loopback/private
-func isLocalAddress(ip string) bool {
-	// Loopback and unspecified addresses
-	if ip == "127.0.0.1" || ip == "::1" || ip == "0.0.0.0" {
-		return true
-	}
-
-	// Loopback range (127.x.x.x)
-	if strings.HasPrefix(ip, "127.") {
-		return true
-	}
-
-	// Private IP ranges
-	if strings.HasPrefix(ip, "10.") {
-		return true
-	}
-
-	if strings.HasPrefix(ip, "192.168.") {
-		return true
-	}
-
-	// 172.16.0.0 - 172.31.255.255
-	if strings.HasPrefix(ip, "172.") {
-		parts := strings.Split(ip, ".")
-		if len(parts) >= 2 {
-			second := parts[1]
-			// Check if second octet is between 16 and 31
-			for i := 16; i <= 31; i++ {
-				if second == fmt.Sprintf("%d", i) {
-					return true
-				}
-			}
-		}
-	}
-
-	// Link-local (169.254.x.x)
-	if strings.HasPrefix(ip, "169.254.") {
-		return true
-	}
-
-	// Multicast (224.x.x.x - 239.x.x.x)
-	if strings.HasPrefix(ip, "224.") || strings.HasPrefix(ip, "225.") ||
-		strings.HasPrefix(ip, "226.") || strings.HasPrefix(ip, "227.") ||
-		strings.HasPrefix(ip, "228.") || strings.HasPrefix(ip, "229.") ||
-		strings.HasPrefix(ip, "230.") || strings.HasPrefix(ip, "231.") ||
-		strings.HasPrefix(ip, "232.") || strings.HasPrefix(ip, "233.") ||
-		strings.HasPrefix(ip, "234.") || strings.HasPrefix(ip, "235.") ||
-		strings.HasPrefix(ip, "236.") || strings.HasPrefix(ip, "237.") ||
-		strings.HasPrefix(ip, "238.") || strings.HasPrefix(ip, "239.") {
-		return true
-	}
-
-	return false
 }
