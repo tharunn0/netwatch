@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -17,6 +18,7 @@ const (
 )
 
 type Model struct {
+	protocol    string
 	connections []conn.Connection // Current list of connections
 	err         error             // Last error, if any
 	width       int               // Terminal width
@@ -35,25 +37,33 @@ type errMsg struct{ err error }
 func (e errMsg) Error() string { return e.err.Error() }
 
 // NewModel creates a new UI model with the specified network path
-func NewModel(netPath string) Model {
+func NewModel() Model {
+
+	conns, err := conn.FetchAllConnections()
+	if err != nil {
+		return Model{
+			err:         fmt.Errorf("[NewModel] failed to fetch connections error: %w", err),
+			connections: []conn.Connection{},
+		}
+	}
+
 	return Model{
-		netPath:     netPath,
-		connections: []conn.Connection{},
+		connections: conns,
 	}
 }
 
 // Init initializes the model and starts the refresh ticker
 func (m Model) Init() tea.Cmd {
 	return tea.Batch(
-		fetchConnections(m.netPath),
+		fetchConnections(),
 		tickEvery(),
 	)
 }
 
 // fetchConnections returns a command that fetches network connections
-func fetchConnections(netPath string) tea.Cmd {
+func fetchConnections() tea.Cmd {
 	return func() tea.Msg {
-		conns, err := conn.FetchConnections(netPath)
+		conns, err := conn.FetchAllConnections()
 		if err != nil {
 			return errMsg{err}
 		}
@@ -63,7 +73,7 @@ func fetchConnections(netPath string) tea.Cmd {
 
 // tickEvery returns a command that sends tick messages periodically
 func tickEvery() tea.Cmd {
-	return tea.Tick(500*time.Millisecond, func(t time.Time) tea.Msg {
+	return tea.Tick(5*time.Second, func(t time.Time) tea.Msg {
 		return tickMsg(t)
 	})
 }

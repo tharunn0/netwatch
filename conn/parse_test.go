@@ -16,7 +16,7 @@ func TestParse(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		ip, port := parse(tt.input)
+		ip, port := parseHexAddr(tt.input)
 		if ip != tt.expectedIP {
 			t.Errorf("parse(%q) IP = %v, want %v", tt.input, ip, tt.expectedIP)
 		}
@@ -31,16 +31,24 @@ func TestGetIP(t *testing.T) {
 		input    string
 		expected string
 	}{
+		// ipv4
 		{"0100007F", "127.0.0.1"},
 		{"00000000", "0.0.0.0"},
 		{"01020304", "4.3.2.1"},
 		{"FFFFFFFF", "255.255.255.255"},
+		// ipv6
+		{input: "01000000000000000000000000000000", expected: "::1"},
+		{input: "FFEEDDCCBBAA99887766554433221100", expected: "1011:2233:4455:6677:8899:aabb:ccdd:eeff"},
+		{input: "01020304050607080910111213141516", expected: "1615:1413:1211:1009:0807:0605:0403:0201"},
+		{input: "00000000000000000000000000000002", expected: "::2"},
+		{input: "0000000000000000000000000000FFFF", expected: "::ffff"},
+		{input: "7F0000FF0000000000000000FFFF0000", expected: "::ffff:127.0.0.1"},
 	}
 
 	for _, tt := range tests {
-		result := getip(tt.input)
+		result := decodeIP(tt.input)
 		if result != tt.expected {
-			t.Errorf("getip(%q) = %v, want %v", tt.input, result, tt.expected)
+			t.Errorf("decodeIP(%q) = %v, want %v", tt.input, result, tt.expected)
 		}
 	}
 }

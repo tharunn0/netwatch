@@ -1,7 +1,8 @@
 package ui
 
 import (
-	"fmt"
+	"log"
+	"net/netip"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -16,7 +17,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "q", "ctrl+c", "esc":
 			return m, tea.Quit
 		case "r":
-			return m, fetchConnections(m.netPath) // manual refresh
+			return m, fetchConnections() // manual refresh
 		case "l":
 			// Toggle filter mode: all -> local -> public -> all
 			switch m.filterMode {
@@ -62,7 +63,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tickMsg:
 		// Periodic refresh
 		return m, tea.Batch(
-			fetchConnections(m.netPath),
+			fetchConnections(),
 			tickEvery(),
 		)
 	}
@@ -83,6 +84,8 @@ func (m Model) filterConnections() []conn.Connection {
 		// Only check the remote address to determine if connection is local or public
 		isLocal := isLocalAddress(c.RemoteIp)
 
+		log.Println(c.RemoteIp, "is local ?", isLocal)
+
 		if m.filterMode == FilterLocal && isLocal {
 			filtered = append(filtered, c)
 		} else if m.filterMode == FilterPublic && !isLocal {
@@ -94,56 +97,36 @@ func (m Model) filterConnections() []conn.Connection {
 }
 
 // isLocalAddress checks if an IP address is local/loopback/private
-func isLocalAddress(ip string) bool {
-	// Loopback and unspecified addresses
-	if ip == "127.0.0.1" || ip == "::1" || ip == "0.0.0.0" {
+func isLocalAddress(addr string) bool {
+	ip, err := netip.ParseAddr(addr)
+	if err != nil {
+		return false
+	}
+	return isWildcardLocal(ip.String()) || ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsMulticast()
+}
+
+func isWildcardLocal(local string) bool {
+	local = strings.TrimSpace(local)
+	if local == "" {
+		return false
+	}
+
+	// Common ss / netstat patterns
+	if local == "0.0.0.0:0" || local == "0.0.0.0:*" ||
+		local == ":::0" || local == ":::*" {
 		return true
 	}
 
-	// Loopback range (127.x.x.x)
-	if strings.HasPrefix(ip, "127.") {
+	// Anything starting with 0.0.0.0: or ::: (followed by port)
+	if strings.HasPrefix(local, "0.0.0.0") ||
+		strings.HasPrefix(local, ":::") {
 		return true
 	}
 
-	// Private IP ranges
-	if strings.HasPrefix(ip, "10.") {
-		return true
-	}
-
-	if strings.HasPrefix(ip, "192.168.") {
-		return true
-	}
-
-	// 172.16.0.0 - 172.31.255.255
-	if strings.HasPrefix(ip, "172.") {
-		parts := strings.Split(ip, ".")
-		if len(parts) >= 2 {
-			second := parts[1]
-			// Check if second octet is between 16 and 31
-			for i := 16; i <= 31; i++ {
-				if second == fmt.Sprintf("%d", i) {
-					return true
-				}
-			}
-		}
-	}
-
-	// Link-local (169.254.x.x)
-	if strings.HasPrefix(ip, "169.254.") {
-		return true
-	}
-
-	// Multicast (224.x.x.x - 239.x.x.x)
-	if strings.HasPrefix(ip, "224.") || strings.HasPrefix(ip, "225.") ||
-		strings.HasPrefix(ip, "226.") || strings.HasPrefix(ip, "227.") ||
-		strings.HasPrefix(ip, "228.") || strings.HasPrefix(ip, "229.") ||
-		strings.HasPrefix(ip, "230.") || strings.HasPrefix(ip, "231.") ||
-		strings.HasPrefix(ip, "232.") || strings.HasPrefix(ip, "233.") ||
-		strings.HasPrefix(ip, "234.") || strings.HasPrefix(ip, "235.") ||
-		strings.HasPrefix(ip, "236.") || strings.HasPrefix(ip, "237.") ||
-		strings.HasPrefix(ip, "238.") || strings.HasPrefix(ip, "239.") {
-		return true
-	}
+	// Rare variants like [::]:port (some tools show brackets)
+	// if strings.HasPrefix(local, "[::]:") {
+	//     return true
+	// }
 
 	return false
 }

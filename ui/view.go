@@ -35,12 +35,11 @@ func (m Model) View() string {
 	}
 
 	// Table header
-	header := fmt.Sprintf("%-*s %-*s %-*s %-*s %-*s",
+	header := fmt.Sprintf("%-*s %-*s %-*s %-*s",
+		ProcWidth, "Process",
 		LocalAddrWidth, "Local Address",
 		RemoteAddrWidth, "Remote Address",
 		StateWidth, "State",
-		PidWidth, "PID",
-		ProcWidth, "Process",
 	)
 	b.WriteString(headerStyle.Render(header))
 	b.WriteString("\n")
@@ -77,12 +76,11 @@ func (m Model) View() string {
 		var row string
 		if i == cursor {
 			// For selected row, use plain text for state (no color styling)
-			row = fmt.Sprintf("%-*s %-*s %-*s %-*s %-*s",
+			row = fmt.Sprintf("%-*s %-*s %-*s %-*s",
+				ProcWidth, c.Proc+"("+c.PID+")",
 				LocalAddrWidth, localAddr,
 				RemoteAddrWidth, remoteAddr,
 				StateWidth, stateText,
-				PidWidth, c.PID,
-				ProcWidth, c.Proc,
 			)
 			b.WriteString(selectedRowStyle.Render(row))
 		} else {
@@ -104,12 +102,11 @@ func (m Model) View() string {
 			// So we pad based on the original text length, not the styled length
 			statePadding := StateWidth - len(stateText)
 
-			row = fmt.Sprintf("%-*s %-*s %s%*s %-*s %-*s",
+			row = fmt.Sprintf("%-*s %-*s %-*s %s%*s",
+				ProcWidth, c.Proc+"("+c.PID+")",
 				LocalAddrWidth, localAddr,
 				RemoteAddrWidth, remoteAddr,
 				stateStyled, statePadding, "",
-				PidWidth, c.PID,
-				ProcWidth, c.Proc,
 			)
 
 			// Apply alternating row colors

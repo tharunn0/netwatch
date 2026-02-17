@@ -15,15 +15,36 @@ import (
 // Fields from columns: local/remote addr, state, inode.
 // Proc/PID matched post-parse via inode -> /proc/<PID>/fd socket symlinks.
 type Connection struct {
-	LocalIp    string
-	LocalPort  string
-	RemoteIp   string
-	RemotePort string
-	State      string
-	Inode      string
+	Protocol   string // tcp,tcp6,udp,udp6
+	LocalIp    string // [IP_ADDRESS]
+	LocalPort  string // 80
+	RemoteIp   string // [IP_ADDRESS]
+	RemotePort string // 54321
+	State      string // ESTABLISHED, LISTEN, TIME_WAIT, etc.
+	Inode      string // inode number
 
-	Proc string
-	PID  string
+	Proc string // process name
+	PID  string // process id
+}
+
+func FetchAllConnections() ([]Connection, error) {
+
+	sources := []string{
+		"/proc/net/tcp",
+		"/proc/net/tcp6",
+	}
+
+	var conns []Connection
+
+	for _, source := range sources {
+		conn, err := FetchConnections(source)
+		if err != nil {
+			return nil, err
+		}
+		conns = append(conns, conn...)
+	}
+
+	return conns, nil
 }
 
 // FetchConnections parses active TCP sockets from netPath (e.g. "/proc/net/tcp").
@@ -36,7 +57,7 @@ func FetchConnections(netPath string) ([]Connection, error) {
 	// fetching all the live tcp connections
 	file, err := os.Open(netPath)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("[FetchConnections] failed to open [%s] error: %w", netPath, err)
 	}
 	defer file.Close()
 
@@ -53,8 +74,8 @@ func FetchConnections(netPath string) ([]Connection, error) {
 			continue
 		}
 
-		localIp, localPort := parse(fields[1])
-		remoteIp, remotePort := parse(fields[2])
+		localIp, localPort := parseHexAddr(fields[1])
+		remoteIp, remotePort := parseHexAddr(fields[2])
 
 		state := tcpState(fields[3])
 		inode := fields[9]
@@ -198,27 +219,46 @@ func FetchConnections(netPath string) ([]Connection, error) {
 // sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode
 // "0: 0100007F:1F90 00000000:0000 0A 00000000:00000000 00:00000000 00000000  1000        0 12345"
 
-// parse splits "IPHEX:PORTHEX" (e.g. "0100007F:1F90") into IP/port.
-// IPHEX: 4-byte big-endian IPv4.
-func parse(hex string) (string, string) {
-	parts := strings.Split(hex, ":")
-	iphex, porthex := parts[0], parts[1]
-
-	ip := getip(iphex)
-
-	port, _ := strconv.ParseInt(porthex, 16, 64)
-
-	return ip, fmt.Sprintf("%d", port)
-}
-
-// getip decodes IPv4 hex bytes, reverses to host byte order, formats as dotted quad.
-func getip(ip string) string {
-	h, _ := hex.DecodeString(ip)
-	for i, j := 0, len(h)-1; i < j; i, j = i+1, j-1 {
-		h[i], h[j] = h[j], h[i]
+// parseHexAddr parses "IPHEX:PORTHEX" into IP and port strings.
+// Supports IPv4 (8 hex chars) and IPv6 (32 hex chars).
+func parseHexAddr(s string) (string, string) {
+	// find colon without allocation
+	i := strings.LastIndexByte(s, ':')
+	if i < 0 {
+		return "", ""
 	}
 
-	return net.IP(h).String()
+	iphex := s[:i]
+	porthex := s[i+1:]
+
+	ip := decodeIP(iphex)
+
+	port, err := strconv.ParseUint(porthex, 16, 16)
+	if err != nil {
+		return ip, ""
+	}
+
+	return ip, strconv.FormatUint(port, 10)
+}
+
+// decodeIP handles both IPv4 and IPv6 hex encodings.
+func decodeIP(iphex string) string {
+	b, err := hex.DecodeString(iphex)
+	if err != nil {
+		return ""
+	}
+	switch len(b) {
+	case net.IPv4len:
+		// reverse for little-endian IPv4 (like /proc)
+		return net.IPv4(b[3], b[2], b[1], b[0]).String()
+	case net.IPv6len:
+		// reverse for little-endian IPv6 (like /proc)
+		for i := 0; i < len(b)/2; i++ {
+			b[i], b[len(b)-1-i] = b[len(b)-1-i], b[i]
+		}
+		return net.IP(b).String()
+	}
+	return ""
 }
 
 // tcpState maps /proc/net/tcp 2-digit hex state codes to human names.

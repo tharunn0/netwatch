@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"os"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -9,16 +10,21 @@ import (
 )
 
 func main() {
-	// Create the UI model with the network path
-	m := ui.NewModel("/proc/net/tcp")
 
-	// Create the Bubble Tea program
+	f, err := tea.LogToFile("debug.log", "debug")
+	if err != nil {
+		fmt.Println("fatal:", err)
+		os.Exit(1)
+	}
+	defer f.Close()
+
+	m := ui.NewModel()
 	p := tea.NewProgram(
 		m,
 		tea.WithAltScreen(), // Use alternate screen buffer
 	)
 
-	// Run the program
+	log.Println("Starting netwatch...")
 	if _, err := p.Run(); err != nil {
 		fmt.Printf("Error running program: %v\n", err)
 		os.Exit(1)
